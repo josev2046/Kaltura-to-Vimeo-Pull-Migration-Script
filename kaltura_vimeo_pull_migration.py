@@ -40,15 +40,26 @@ def get_kaltura_session():
     try:
         response = requests.post(KALTURA_SERVICE_URL, data=params)
         response.raise_for_status()
-        return response.json().get('ks')
+
+        # Handle the quirky Kaltura session response: it can be a raw string or a JSON object.
+        response_data = response.json()
+        
+        if isinstance(response_data, dict):
+            return response_data.get('ks')
+        elif isinstance(response_data, str):
+            return response_data
+        else:
+            print("Kaltura API response was of an unexpected type. Cannot get KS token.")
+            return None
+
     except requests.exceptions.RequestException as e:
         print(f"Error getting Kaltura session: {e}")
         return None
 
 def get_video_metadata_and_direct_url(ks_token, entry_id):
     """
-    Retrieves video metadata (title, tags) and constructs a direct,
-    authenticated download URL for the best available MP4 flavor.
+    Retrieves video metadata (title) and constructs a direct,
+    authenticated download URL for the highest quality available MP4 flavor.
     """
     # Step 1: Get media metadata
     media_params = {
@@ -56,15 +67,15 @@ def get_video_metadata_and_direct_url(ks_token, entry_id):
         "action": "get",
         "ks": ks_token,
         "partnerId": KALTURA_PARTNER_ID,
-        "entryId": entry_id
+        "entryId": entry_id,
+        "format": 1
     }
     try:
         media_response = requests.get(KALTURA_SERVICE_URL, params=media_params)
         media_response.raise_for_status()
-        root = ET.fromstring(media_response.content)
-        title = root.find(".//name").text
-        tags = root.find(".//tags").text if root.find(".//tags") is not None else ""
-    except (requests.exceptions.RequestException, ET.ParseError, AttributeError) as e:
+        media_data = media_response.json()
+        title = media_data.get('name')
+    except (requests.exceptions.RequestException, json.JSONDecodeError, AttributeError) as e:
         print(f"Error retrieving metadata for entry {entry_id}: {e}")
         return None, None, None
 
@@ -79,31 +90,46 @@ def get_video_metadata_and_direct_url(ks_token, entry_id):
     try:
         flavor_response = requests.post(KALTURA_SERVICE_URL, data=flavor_params)
         flavor_response.raise_for_status()
+
+        # Check if the response is a list (JSON) or an error string
         flavor_assets = flavor_response.json()
+        if not isinstance(flavor_assets, list):
+            print(f"  -> API returned an error for flavor assets on entry {entry_id}.")
+            print(f"  -> Raw API response: {flavor_response.text}")
+            return title, None, None
         
-        # Find the first MP4 flavor that is ready (status==2)
-        for asset in flavor_assets:
-            if asset.get('fileExt') == 'mp4' and asset.get('status') == 2:
-                flavor_id = asset.get('id')
-                if flavor_id:
-                    # Construct the direct, authenticated download URL
-                    download_url = f"https://www.kaltura.com/p/{KALTURA_PARTNER_ID}/sp/{KALTURA_PARTNER_ID}00/playManifest/entryId/{entry_id}/flavorId/{flavor_id}/format/download/protocol/https?ks={ks_token}"
-                    return title, tags, download_url
+        # Filter for ready MP4 flavors
+        mp4_flavors = [asset for asset in flavor_assets if asset.get('fileExt') == 'mp4' and asset.get('status') == 2]
+
+        if not mp4_flavors:
+            print(f"  -> No valid MP4 flavor found for entry {entry_id}. Skipping.")
+            return title, None, None
+
+        # Sort flavors by resolution (e.g., width) to get the highest quality
+        mp4_flavors.sort(key=lambda x: int(x.get('width', 0)), reverse=True)
         
-        print(f"  -> No valid MP4 flavor found for entry {entry_id}. Skipping.")
-        return title, tags, None
+        # The highest quality flavor is now the first in the list
+        best_flavor = mp4_flavors[0]
+        flavor_id = best_flavor.get('id')
+
+        if flavor_id:
+            # Construct the direct, authenticated download URL
+            download_url = f"https://www.kaltura.com/p/{KALTURA_PARTNER_ID}/sp/{KALTURA_PARTNER_ID}00/playManifest/entryId/{entry_id}/flavorId/{flavor_id}/format/download/protocol/https?ks={ks_token}"
+            return title, None, download_url # Removed tags for simplicity, as per user's request.
+        
+        print(f"  -> No valid flavor ID found for entry {entry_id}. Skipping.")
+        return title, None, None
     except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
         print(f"Error getting flavor assets for entry {entry_id}: {e}")
-        return title, tags, None
+        return title, None, None
 
 
 # --- Vimeo API Function ---
-def initiate_vimeo_pull_upload(download_url, title, tags):
+def initiate_vimeo_pull_upload(download_url, title):
     """
     Initiates a 'pull' upload to Vimeo from a given URL and then moves it
     to a specified folder.
     """
-    
     headers = {
         "Authorization": f"Bearer {VIMEO_ACCESS_TOKEN}",
         "Content-Type": "application/json",
@@ -117,7 +143,6 @@ def initiate_vimeo_pull_upload(download_url, title, tags):
             "link": download_url
         },
         "name": title,
-        "tags": tags.split(",") if tags else []
     }
 
     try:
@@ -162,7 +187,7 @@ if __name__ == "__main__":
     # Iterate through the list of Kaltura entries
     for entry_id in KALTURA_ENTRY_IDS:
         print(f"\nProcessing Kaltura entry ID: {entry_id}...")
-        title, tags, download_url = get_video_metadata_and_direct_url(ks_token, entry_id)
+        title, _, download_url = get_video_metadata_and_direct_url(ks_token, entry_id)
         
         # Only proceed if we have a valid title and download URL
         if not title or not download_url:
@@ -170,6 +195,6 @@ if __name__ == "__main__":
             continue
         
         # Initiate the upload to Vimeo
-        initiate_vimeo_pull_upload(download_url, title, tags)
+        initiate_vimeo_pull_upload(download_url, title)
 
     print("\nMigration script completed.")
