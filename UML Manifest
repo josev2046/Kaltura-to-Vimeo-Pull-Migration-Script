@@ -1,0 +1,57 @@
+@startuml
+!theme toy
+title Kaltura to Vimeo Video Migration Workflow
+
+participant "Migration Script" as Script
+
+box "Kaltura Platform" #LightBlue
+    participant "API Service" as Kaltura
+end box
+
+box "Vimeo Platform" #LightGreen
+    participant "API Service" as Vimeo
+end box
+
+autonumber 100
+
+group << Authentication >>
+    Script -> Kaltura: POST /service/session/start\n(Partner ID, Secret)
+    activate Kaltura
+    Kaltura --> Script: 200 OK\n(KS Token)
+    deactivate Kaltura
+end
+
+group << Video Processing Loop >>
+    loop for each `entry_id`
+        Script -> Kaltura: GET /service/media/get\n(KS Token, entry_id)
+        activate Kaltura
+        Kaltura --> Script: 200 OK\n(Video Metadata)
+        deactivate Kaltura
+
+        Script -> Kaltura: POST /service/flavorasset/getByEntryId\n(KS Token, entry_id)
+        activate Kaltura
+        Kaltura --> Script: 200 OK\n(Flavor Asset List)
+        deactivate Kaltura
+
+        alt if a valid MP4 asset is found
+            note right of Script
+                Constructs authenticated
+                download URL
+            end note
+
+            Script -> Vimeo: POST /me/videos\n(upload approach="pull", link=...)
+            activate Vimeo
+            Vimeo --> Script: 201 Created\n(new video URI)
+            deactivate Vimeo
+            
+            Script -> Vimeo: PUT /me/projects/{folder_id}/videos/{video_id}
+            activate Vimeo
+            Vimeo --> Script: 204 No Content
+            deactivate Vimeo
+        else no suitable asset
+            Script -> Script: Log: "No valid asset found for entry_id"
+        end
+    end
+end
+
+@enduml
