@@ -1,6 +1,5 @@
 @startuml
 !theme toy
-title Kaltura to Vimeo Video Migration Workflow
 
 participant "Migration Script" as Script
 
@@ -12,7 +11,6 @@ box "Vimeo Platform" #LightGreen
     participant "API Service" as Vimeo
 end box
 
-autonumber 100
 
 group << Authentication >>
     Script -> Kaltura: POST /service/session/start\n(Partner ID, Secret)
