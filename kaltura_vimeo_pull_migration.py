@@ -6,18 +6,15 @@ import time
 
 # --- Configuration ---
 # Your Kaltura Credentials
-# Replace these with your actual Kaltura partner ID and secret.
 KALTURA_PARTNER_ID = "YOUR_KALTURA_PARTNER_ID"
 KALTURA_USER_SECRET = "YOUR_KALTURA_USER_SECRET"
 KALTURA_SERVICE_URL = "https://www.kaltura.com/api_v3/index.php"
 
 # Your Vimeo Credentials and Destination Folder
-# Replace these with your Vimeo access token and the ID of the folder you want to upload to.
 VIMEO_ACCESS_TOKEN = "YOUR_VIMEO_ACCESS_TOKEN"
 VIMEO_FOLDER_ID = "YOUR_VIMEO_FOLDER_ID"
 
 # List of entry IDs to migrate
-# This is the complete, unique list of 111 entry IDs you provided.
 KALTURA_ENTRY_IDS = [
     "YOUR_KALTURA_ENTRY_ID_1",
     "YOUR_KALTURA_ENTRY_ID_2",
